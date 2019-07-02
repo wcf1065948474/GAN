@@ -17,12 +17,11 @@ IMG_EXTENSIONS = [
 class CreateDatasetLoader():
     def __init__(self,opt):
         self.opt = opt
-        self.dataset = UnalignedDataset()
-        self.dataset.initialize(self.opt)
+        self.dataset = UnalignedDataset(self.opt)
         self.dataloader = torch.utils.data.DataLoader(
             self.dataset,
             batch_size=self.opt.batchSize,
-            buffle=not self.opt.serial_batches,
+            shuffle=not self.opt.serial_batches,
             num_workers=int(self.opt.nThreads)
         )
     def load_data(self):
@@ -59,16 +58,6 @@ def store_dataset(dir):
                 all_path.append(path)
 
     return images, all_path
-
-class BaseDataset(data.Dataset):
-    def __init__(self):
-        super(BaseDataset, self).__init__()
-
-    def name(self):
-        return 'BaseDataset'
-
-    def initialize(self, opt):
-        pass
 
 def get_transform(opt):
     transform_list = []
@@ -107,12 +96,9 @@ def __scale_width(img, target_width):
     return img.resize((w, h), Image.BICUBIC)
 
 def pad_tensor(input):
-    
     height_org, width_org = input.shape[2], input.shape[3]
     divide = 16
-
     if width_org % divide != 0 or height_org % divide != 0:
-
         width_res = width_org % divide
         height_res = height_org % divide
         if width_res != 0:
@@ -122,7 +108,6 @@ def pad_tensor(input):
         else:
             pad_left = 0
             pad_right = 0
-
         if height_res != 0:
             height_div = divide - height_res
             pad_top = int(height_div  / 2)
@@ -130,19 +115,16 @@ def pad_tensor(input):
         else:
             pad_top = 0
             pad_bottom = 0
-
-            padding = nn.ReflectionPad2d((pad_left, pad_right, pad_top, pad_bottom))
-            input = padding(input).data
+        padding = nn.ReflectionPad2d((pad_left, pad_right, pad_top, pad_bottom))
+        input = padding(input).data
     else:
         pad_left = 0
         pad_right = 0
         pad_top = 0
         pad_bottom = 0
-
     height, width = input.shape[2], input.shape[3]
     assert width % divide == 0, 'width cant divided by stride'
     assert height % divide == 0, 'height cant divided by stride'
-
     return input, pad_left, pad_right, pad_top, pad_bottom
 
 def pad_tensor_back(input, pad_left, pad_right, pad_top, pad_bottom):
@@ -150,8 +132,8 @@ def pad_tensor_back(input, pad_left, pad_right, pad_top, pad_bottom):
     return input[:,:, pad_top: height - pad_bottom, pad_left: width - pad_right]
 
 
-class UnalignedDataset(BaseDataset):
-    def initialize(self, opt):
+class UnalignedDataset(object):
+    def __init__(self, opt):
         self.opt = opt
         self.root = opt.dataroot
         self.dir_A = os.path.join(opt.dataroot, opt.phase + 'A')
@@ -204,12 +186,12 @@ class UnalignedDataset(BaseDataset):
             
             # A_gray = (1./A_gray)/255.
             if (not self.opt.no_flip) and random.random() < 0.5:
-                idx = [i for i in range(A_img.size(2) - 1, -1, -1)]
+                idx = [i for i in range(w - 1, -1, -1)]
                 idx = torch.LongTensor(idx)
                 A_img = A_img.index_select(2, idx)
                 B_img = B_img.index_select(2, idx)
             if (not self.opt.no_flip) and random.random() < 0.5:
-                idx = [i for i in range(A_img.size(1) - 1, -1, -1)]
+                idx = [i for i in range(h - 1, -1, -1)]
                 idx = torch.LongTensor(idx)
                 A_img = A_img.index_select(1, idx)
                 B_img = B_img.index_select(1, idx)

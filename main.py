@@ -8,7 +8,7 @@ data_loader = CreateDatasetLoader(opt)
 dataset = data_loader.load_data()
 dataset_size = len(data_loader)
 print("dataset_size=%d" % dataset_size)
-model = SingleModel()
+model = SingleModel(opt)
 visualizer = Visualizer()
 
 total_steps = 0

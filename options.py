@@ -2,7 +2,7 @@ class Options(object):
     def __init__(self):
         self.D_P_times2=False
         self.IN_vgg=False
-        self.batchSize=32
+        self.batchSize=16
         self.beta1=0.5
         self.checkpoints_dir="./checkpoints"
         self.continue_train=False

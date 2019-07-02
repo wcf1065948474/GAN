@@ -488,12 +488,8 @@ class GANLoss(nn.Module):
 
 
 class SingleModel(object):
-    def __init__(self):
+    def __init__(self,opt):
         self.Tensor = torch.cuda.FloatTensor
-    def name(self):
-        return 'SingleGANModel'
-
-    def initialize(self, opt):
         nb = opt.batchSize
         size = opt.fineSize
         self.opt = opt
@@ -530,7 +526,7 @@ class SingleModel(object):
         # self.netG_B = networks.define_G(opt.output_nc, opt.input_nc,
         #                                 opt.ngf, opt.which_model_netG, opt.norm, not opt.no_dropout, self.gpu_ids, skip=False, opt=opt)
 
-        if self.isTrain:
+        if self.opt.isTrain:
             use_sigmoid = opt.no_lsgan
             self.netD_A = NoNormDiscriminator(opt.output_nc, opt.ndf, opt.n_layers_D, use_sigmoid=use_sigmoid)
             self.netD_A.cuda()
@@ -545,16 +541,16 @@ class SingleModel(object):
                 # self.netD_P = networks.define_D(opt.input_nc, opt.ndf,
                 #                             opt.which_model_netD,
                 #                             opt.n_layers_patchD, opt.norm, use_sigmoid, self.gpu_ids, True)
-        if not self.isTrain or opt.continue_train:
+        if not self.opt.isTrain or opt.continue_train:
             which_epoch = opt.which_epoch
             self.load_network(self.netG_A, 'G_A', which_epoch)
             # self.load_network(self.netG_B, 'G_B', which_epoch)
-            if self.isTrain:
+            if self.opt.isTrain:
                 self.load_network(self.netD_A, 'D_A', which_epoch)
                 if self.opt.patchD:
                     self.load_network(self.netD_P, 'D_P', which_epoch)
 
-        if self.isTrain:
+        if self.opt.isTrain:
             self.old_lr = opt.lr
             # self.fake_A_pool = ImagePool(opt.pool_size)
             self.fake_B_pool = ImagePool(opt.pool_size)
@@ -584,7 +580,7 @@ class SingleModel(object):
         #     if self.opt.patchD:
         #         networks.print_network(self.netD_P)
         #     # networks.print_network(self.netD_B)
-        if opt.isTrain:
+        if self.opt.isTrain:
             self.netG_A.train()
             self.netD_A.train()
             if opt.patchD:
@@ -953,7 +949,7 @@ class Visualizer(object):
         dictlen = len(value)
         plt.suptitle("disply_current_results")
         for i,key in enumerate(value):
-            plt.subplot(1,dictlen,i)
+            plt.subplot(1,dictlen,i+1)
             plt.title(key)
             plt.axis('off')
             plt.imshow(value[key])
