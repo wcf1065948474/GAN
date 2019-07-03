@@ -100,19 +100,6 @@ class Unet_resize_conv(nn.Module):
         if self.opt.tanh:
             self.tanh = nn.Tanh()
 
-    def depth_to_space(self, input, block_size):
-        block_size_sq = block_size*block_size
-        output = input.permute(0, 2, 3, 1)
-        (batch_size, d_height, d_width, d_depth) = output.size()
-        s_depth = int(d_depth / block_size_sq)
-        s_width = int(d_width * block_size)
-        s_height = int(d_height * block_size)
-        t_1 = output.resize(batch_size, d_height, d_width, block_size_sq, s_depth)
-        spl = t_1.split(block_size, 3)
-        stack = [t_t.resize(batch_size, d_height, s_width, s_depth) for t_t in spl]
-        output = torch.stack(stack,0).transpose(0,1).permute(0,2,1,3,4).resize(batch_size, s_height, s_width, s_depth)
-        output = output.permute(0, 3, 1, 2)
-        return output
 
     def forward(self, input, gray):
         flag = 0
@@ -399,6 +386,7 @@ def load_vgg16(model_dir):
         vgg = None
     else:
         vgg = Vgg16()
+        vgg.eval()
         vgg.cuda()
         vgg.load_state_dict(torch.load(os.path.join(model_dir, 'vgg16.weight')))
     return vgg
@@ -447,50 +435,18 @@ class GANLoss(nn.Module):
         target_tensor = self.get_target_tensor(input, target_is_real)
         return self.loss(input, target_tensor)
 
-class DiscLossWGANGP(object):
-    def __init__(self):
-        self.LAMBDA = 10
-        
-    def name(self):
-        return 'DiscLossWGAN-GP'
 
-    def initialize(self, opt, tensor):
-        # DiscLossLS.initialize(self, opt, tensor)
-        self.LAMBDA = 10
-        
-    # def get_g_loss(self, net, realA, fakeB):
-    #     # First, G(A) should fake the discriminator
-    #     self.D_fake = net.forward(fakeB)
-    #     return -self.D_fake.mean()
-        
-    def calc_gradient_penalty(self, netD, real_data, fake_data):
-        alpha = torch.rand(1, 1)
-        alpha = alpha.expand(real_data.size())
-        alpha = alpha.cuda()
-
-        interpolates = alpha * real_data + ((1 - alpha) * fake_data)
-
-        interpolates = interpolates.cuda()
-        interpolates = Variable(interpolates, requires_grad=True)
-        
-        disc_interpolates = netD.forward(interpolates)
-
-        gradients = torch.autograd.grad(outputs=disc_interpolates, inputs=interpolates,
-                                  grad_outputs=torch.ones(disc_interpolates.size()).cuda(),
-                                  create_graph=True, retain_graph=True, only_inputs=True)[0]
-
-        gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * self.LAMBDA
-        return gradient_penalty
 
 class GANModel(object):
     def __init__(self,opt):
         self.opt = opt
+        self.Tensor = torch.cuda.FloatTensor
         self.netG = Unet_resize_conv(opt)
         self.netD = NoNormDiscriminator(opt.output_nc, opt.ndf, opt.n_layers_D, use_sigmoid=opt.no_lsgan)
         self.netD_P = NoNormDiscriminator(opt.output_nc, opt.ndf, opt.n_layers_patchD, use_sigmoid=opt.no_lsgan)
-        self.optimizer_G = torch.optim.Adam(netG.parameters(),lr=opt.lr, betas=(opt.beta1, 0.999))
-        self.optimizer_D = torch.optim.Adam(netD.parameters(),lr=opt.lr, betas=(opt.beta1, 0.999))
-        self.optimizer_D_P = torch.optim.Adam(netD_P.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+        self.optimizer_G = torch.optim.Adam(self.netG.parameters(),lr=opt.lr, betas=(opt.beta1, 0.999))
+        self.optimizer_D = torch.optim.Adam(self.netD.parameters(),lr=opt.lr, betas=(opt.beta1, 0.999))
+        self.optimizer_D_P = torch.optim.Adam(self.netD_P.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
         self.netG.cuda()
         self.netD.cuda()
         self.netD_P.cuda()
@@ -498,12 +454,8 @@ class GANModel(object):
         self.netD.apply(weights_init)
         self.netD_P.apply(weights_init)
         self.vgg_loss = PerceptualLoss(opt)
-        if self.opt.IN_vgg:
-            self.vgg_patch_loss = PerceptualLoss(opt)
-            self.vgg_patch_loss.cuda()
         self.vgg_loss.cuda()
         self.vgg = load_vgg16("./model")
-        self.vgg.eval()
         for param in self.vgg.parameters():
             param.requires_grad = False
 
@@ -512,31 +464,32 @@ class GANModel(object):
             # self.fake_A_pool = ImagePool(opt.pool_size)
             self.fake_B_pool = ImagePool(opt.pool_size)
             # define loss functions
-            if opt.use_wgan:#=0.0
-                self.criterionGAN = DiscLossWGANGP()
-            else:
-                self.criterionGAN = GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
-            if opt.use_mse:#false
-                self.criterionCycle = torch.nn.MSELoss()
-            else:
-                self.criterionCycle = torch.nn.L1Loss()
-            self.criterionL1 = torch.nn.L1Loss()
-            self.criterionIdt = torch.nn.L1Loss()
+            self.criterionGAN = GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
+
+        if self.opt.isTrain:
+            self.netG.train()
+            self.netD.train()
+            if opt.patchD:
+                self.netD_P.train()
+        else:
+            self.netG.eval()
+            self.netD.eval()
+            if opt.patchD:
+                self.netD_P.eval()
+        print("G_A:")
+        print(self.netG)
+        print("D_A:")
+        print(self.netD)
+        print("D_P:")
+        print(self.netD_P)
 
     def forward(self,data):
         self.real_A = data['A'].cuda()
         self.real_B = data['B'].cuda()
         self.real_A_gray = data['A_gray'].cuda()
         self.real_img = data['input_img']
-        if self.opt.noise > 0:  #opt.noise=0
-            self.noise = Variable(torch.cuda.FloatTensor(self.real_A.size()).normal_(mean=0, std=self.opt.noise/255.))
-            self.real_A = self.real_A + self.noise
-        if self.opt.input_linear:  #false
-            self.real_A = (self.real_A - torch.min(self.real_A))/(torch.max(self.real_A) - torch.min(self.real_A))
-        if self.opt.skip == 1:  #skip==1
-            self.fake_B, self.latent_real_A = self.netG.forward(self.real_img, self.real_A_gray)
-        else:
-            self.fake_B = self.netG.forward(self.real_img, self.real_A_gray)
+
+        self.fake_B, self.latent_real_A = self.netG.forward(self.real_img, self.real_A_gray)
         if self.opt.patchD:  #True
             w = self.real_A.size(3)
             h = self.real_A.size(2)
@@ -568,17 +521,11 @@ class GANModel(object):
 
     def backward_G(self, epoch):
         pred_fake = self.netD.forward(self.fake_B)
-        if self.opt.use_wgan:  #=0.0,False
-            self.loss_G_A = -pred_fake.mean()
-        elif self.opt.use_ragan:  #true
-            pred_real = self.netD_A.forward(self.real_B)
+        pred_real = self.netD_A.forward(self.real_B)
 
-            self.loss_G_A = (self.criterionGAN(pred_real - torch.mean(pred_fake), False) +
-                                      self.criterionGAN(pred_fake - torch.mean(pred_real), True)) / 2
+        self.loss_G_A = (self.criterionGAN(pred_real - torch.mean(pred_fake), False) +
+                                    self.criterionGAN(pred_fake - torch.mean(pred_real), True)) / 2
             
-        else:
-            self.loss_G_A = self.criterionGAN(pred_fake, True)
-        
         loss_G_A = 0
         if self.opt.patchD:#True
             pred_fake_patch = self.netD_P.forward(self.fake_patch)
@@ -618,20 +565,12 @@ class GANModel(object):
         self.loss_vgg_b = self.vgg_loss.compute_vgg_loss(self.vgg, 
                 self.fake_B, self.real_A) * self.opt.vgg #if self.opt.vgg > 0 else 0
         if self.opt.patch_vgg:#true
-            if not self.opt.IN_vgg:#=false
-                loss_vgg_patch = self.vgg_loss.compute_vgg_loss(self.vgg, 
-                self.fake_patch, self.input_patch) * self.opt.vgg
-            else:
-                loss_vgg_patch = self.vgg_patch_loss.compute_vgg_loss(self.vgg, 
-                self.fake_patch, self.input_patch) * self.opt.vgg
+            loss_vgg_patch = self.vgg_loss.compute_vgg_loss(self.vgg, 
+            self.fake_patch, self.input_patch) * self.opt.vgg
             if self.opt.patchD_3 > 0:
                 for i in range(self.opt.patchD_3):
-                    if not self.opt.IN_vgg:
-                        loss_vgg_patch += self.vgg_loss.compute_vgg_loss(self.vgg, 
-                            self.fake_patch_1[i], self.input_patch_1[i]) * self.opt.vgg
-                    else:
-                        loss_vgg_patch += self.vgg_patch_loss.compute_vgg_loss(self.vgg, 
-                            self.fake_patch_1[i], self.input_patch_1[i]) * self.opt.vgg
+                    loss_vgg_patch += self.vgg_loss.compute_vgg_loss(self.vgg, 
+                        self.fake_patch_1[i], self.input_patch_1[i]) * self.opt.vgg
                 self.loss_vgg_b += loss_vgg_patch/float(self.opt.patchD_3 + 1)
             else:
                 self.loss_vgg_b += loss_vgg_patch
@@ -642,12 +581,7 @@ class GANModel(object):
         # Real
         pred_real = netD.forward(real)
         pred_fake = netD.forward(fake.detach())
-        if self.opt.use_wgan:
-            loss_D_real = pred_real.mean()
-            loss_D_fake = pred_fake.mean()
-            loss_D = loss_D_fake - loss_D_real + self.criterionGAN.calc_gradient_penalty(netD, 
-                                                real.data, fake.data)
-        elif self.opt.use_ragan and use_ragan:
+        if self.opt.use_ragan and use_ragan:
             loss_D = (self.criterionGAN(pred_real - torch.mean(pred_fake), True) +
                                       self.criterionGAN(pred_fake - torch.mean(pred_real), False)) / 2
         else:
@@ -659,26 +593,18 @@ class GANModel(object):
     def backward_D(self):
         fake_B = self.fake_B_pool.query(self.fake_B)
         fake_B = self.fake_B
-        self.loss_D_A = self.backward_D_basic(self.netD_A, self.real_B, fake_B, True)
+        self.loss_D_A = self.backward_D_basic(self.netD, self.real_B, fake_B, True)
         self.loss_D_A.backward()
 
     def backward_D_P(self):
-        if self.opt.hybrid_loss:
-            loss_D_P = self.backward_D_basic(self.netD_P, self.real_patch, self.fake_patch, False)
-            if self.opt.patchD_3 > 0:
-                for i in range(self.opt.patchD_3):
-                    loss_D_P += self.backward_D_basic(self.netD_P, self.real_patch_1[i], self.fake_patch_1[i], False)
-                self.loss_D_P = loss_D_P/float(self.opt.patchD_3 + 1)
-            else:
-                self.loss_D_P = loss_D_P
+        loss_D_P = self.backward_D_basic(self.netD_P, self.real_patch, self.fake_patch, False)
+        if self.opt.patchD_3 > 0:
+            for i in range(self.opt.patchD_3):
+                loss_D_P += self.backward_D_basic(self.netD_P, self.real_patch_1[i], self.fake_patch_1[i], False)
+            self.loss_D_P = loss_D_P/float(self.opt.patchD_3 + 1)
         else:
-            loss_D_P = self.backward_D_basic(self.netD_P, self.real_patch, self.fake_patch, True)
-            if self.opt.patchD_3 > 0:
-                for i in range(self.opt.patchD_3):
-                    loss_D_P += self.backward_D_basic(self.netD_P, self.real_patch_1[i], self.fake_patch_1[i], True)
-                self.loss_D_P = loss_D_P/float(self.opt.patchD_3 + 1)
-            else:
-                self.loss_D_P = loss_D_P
+            self.loss_D_P = loss_D_P
+        
         if self.opt.D_P_times2:
             self.loss_D_P = self.loss_D_P*2
         self.loss_D_P.backward()
@@ -687,49 +613,30 @@ class GANModel(object):
         real_A = util.tensor2im(self.real_A.data)
         fake_B = util.tensor2im(self.fake_B.data)
         real_B = util.tensor2im(self.real_B.data)
-        if self.opt.skip > 0:
-            latent_real_A = util.tensor2im(self.latent_real_A.data)
-            latent_show = util.latent2im(self.latent_real_A.data)
-            if self.opt.patchD:
-                fake_patch = util.tensor2im(self.fake_patch.data)
-                real_patch = util.tensor2im(self.real_patch.data)
-                if self.opt.patch_vgg:
-                    input_patch = util.tensor2im(self.input_patch.data)
-                    if not self.opt.self_attention:
-                        return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('latent_real_A', latent_real_A),
-                                ('latent_show', latent_show), ('real_B', real_B), ('real_patch', real_patch),
-                                ('fake_patch', fake_patch), ('input_patch', input_patch)])
-                    else:
-                        self_attention = util.atten2im(self.real_A_gray.data)
-                        return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('latent_real_A', latent_real_A),
-                                ('latent_show', latent_show), ('real_B', real_B), ('real_patch', real_patch),
-                                ('fake_patch', fake_patch), ('input_patch', input_patch), ('self_attention', self_attention)])
-                else:
-                    if not self.opt.self_attention:
-                        return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('latent_real_A', latent_real_A),
-                                ('latent_show', latent_show), ('real_B', real_B), ('real_patch', real_patch),
-                                ('fake_patch', fake_patch)])
-                    else:
-                        self_attention = util.atten2im(self.real_A_gray.data)
-                        return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('latent_real_A', latent_real_A),
-                                ('latent_show', latent_show), ('real_B', real_B), ('real_patch', real_patch),
-                                ('fake_patch', fake_patch), ('self_attention', self_attention)])
-            else:
-                if not self.opt.self_attention:
-                    return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('latent_real_A', latent_real_A),
-                                ('latent_show', latent_show), ('real_B', real_B)])
-                else:
-                    self_attention = util.atten2im(self.real_A_gray.data)
-                    return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('real_B', real_B),
-                                    ('latent_real_A', latent_real_A), ('latent_show', latent_show),
-                                    ('self_attention', self_attention)])
+
+        latent_real_A = util.tensor2im(self.latent_real_A.data)
+        latent_show = util.latent2im(self.latent_real_A.data)
+        fake_patch = util.tensor2im(self.fake_patch.data)
+        real_patch = util.tensor2im(self.real_patch.data)
+        input_patch = util.tensor2im(self.input_patch.data)
+        if not self.opt.self_attention:
+            return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('latent_real_A', latent_real_A),
+                    ('latent_show', latent_show), ('real_B', real_B), ('real_patch', real_patch),
+                    ('fake_patch', fake_patch), ('input_patch', input_patch)])
         else:
-            if not self.opt.self_attention:
-                return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('real_B', real_B)])
-            else:
-                self_attention = util.atten2im(self.real_A_gray.data)
-                return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('real_B', real_B),
-                                    ('self_attention', self_attention)])
+            self_attention = util.atten2im(self.real_A_gray.data)
+            return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('latent_real_A', latent_real_A),
+                    ('latent_show', latent_show), ('real_B', real_B), ('real_patch', real_patch),
+                    ('fake_patch', fake_patch), ('input_patch', input_patch), ('self_attention', self_attention)])
+
+    def get_current_errors(self, epoch):
+        D_A = self.loss_D_A.item()
+        D_P = self.loss_D_P.item() if self.opt.patchD else 0
+        G_A = self.loss_G_A.item()
+        vgg = self.loss_vgg_b.data[0]/self.opt.vgg if self.opt.vgg > 0 else 0
+        return OrderedDict([('D_A', D_A), ('G_A', G_A), ("vgg", vgg), ("D_P", D_P)])
+
+
 
     def train(self,data,epoch):
         self.forward(data)
@@ -738,13 +645,11 @@ class GANModel(object):
         self.optimizer_G.step()
         self.optimizer_D.zero_grad()
         self.backward_D()
-        if not self.opt.patchD:
-            self.optimizer_D.step()
-        else:
-            self.optimizer_D_P.zero_grad()
-            self.backward_D_P()
-            self.optimizer_D.step()
-            self.optimizer_D_P.step()
+
+        self.optimizer_D_P.zero_grad()
+        self.backward_D_P()
+        self.optimizer_D.step()
+        self.optimizer_D_P.step()
 
 class Visualizer(object):
     def __init__(self):
