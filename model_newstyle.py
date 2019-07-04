@@ -604,32 +604,21 @@ class GANModel(object):
             self.loss_D_P = self.loss_D_P*2
         self.loss_D_P.backward()
 
-     def test(self):
-        self.real_A = Variable(self.input_A, volatile=True)
-        self.real_A_gray = Variable(self.input_A_gray, volatile=True)
+    def test(self):
+        # self.real_A = Variable(self.input_A, volatile=True)
+        # self.real_A_gray = Variable(self.input_A_gray, volatile=True)
         self.fake_B, self.latent_real_A = self.netG.forward(self.real_A, self.real_A_gray)
         self.real_B = Variable(self.input_B, volatile=True)
 
 
-    def predict(self):
-        self.real_A = Variable(self.input_A, volatile=True)
-        self.real_A_gray = Variable(self.input_A_gray, volatile=True)
-        if self.opt.noise > 0:
-            self.noise = Variable(torch.cuda.FloatTensor(self.real_A.size()).normal_(mean=0, std=self.opt.noise/255.))
-            self.real_A = self.real_A + self.noise
-        if self.opt.input_linear:
-            self.real_A = (self.real_A - torch.min(self.real_A))/(torch.max(self.real_A) - torch.min(self.real_A))
-        # print(np.transpose(self.real_A.data[0].cpu().float().numpy(),(1,2,0))[:2][:2][:])
-        if self.opt.skip == 1:
-            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray)
-        else:
-            self.fake_B = self.netG_A.forward(self.real_A, self.real_A_gray)
-        # self.rec_A = self.netG_B.forward(self.fake_B)
-
+    def predict(self,data):
+        self.real_A = data['A'].cuda()
+        self.real_A_gray = data['A_gray'].cuda()
+        self.fake_B, self.latent_real_A = self.netG.forward(self.real_A, self.real_A_gray)
         real_A = util.tensor2im(self.real_A.data)
         fake_B = util.tensor2im(self.fake_B.data)
         A_gray = util.atten2im(self.real_A_gray.data)
-        return OrderedDict([('real_A', real_A), ('fake_B', fake_B)])
+        return OrderedDict([('real_A', real_A), ('fake_B', fake_B),('A_gray',A_gray)])
 
     def get_current_visuals(self):
         real_A = util.tensor2im(self.real_A.data)
@@ -669,8 +658,8 @@ class GANModel(object):
         torch.save(network.cpu().state_dict(), save_path)
 
     def save(self, label):
-        self.save_network(self.netG_A, 'G_A', label)
-        self.save_network(self.netD_A, 'D_A', label)
+        self.save_network(self.netG, 'G_A', label)
+        self.save_network(self.netD, 'D_A', label)
         self.save_network(self.netD_P, 'D_P', label)
 
     def update_learning_rate(self):
@@ -680,7 +669,7 @@ class GANModel(object):
         else:
             lrd = self.opt.lr / self.opt.niter_decay
             lr = self.old_lr - lrd
-        for param_group in self.optimizer_D_A.param_groups:
+        for param_group in self.optimizer_D.param_groups:
             param_group['lr'] = lr
         if self.opt.patchD:
             for param_group in self.optimizer_D_P.param_groups:
