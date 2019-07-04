@@ -517,7 +517,7 @@ class GANModel(object):
                     w_offset_1:w_offset_1 + self.opt.patchSize])
                 self.input_patch_1.append(self.real_A[:,:, h_offset_1:h_offset_1 + self.opt.patchSize,
                     w_offset_1:w_offset_1 + self.opt.patchSize])
-                self.optimizer_G.zero_grad()
+        
 
     def backward_G(self, epoch):
         pred_fake = self.netD.forward(self.fake_B)
@@ -694,10 +694,9 @@ class GANModel(object):
         self.optimizer_D_P.step()
 
 class Visualizer(object):
-    def __init__(self):
-        plt.figure(figsize=(15,5))
     def display_current_results(self,value,epoch):
         dictlen = len(value)
+        plt.figure(figsize=(15,5))
         plt.suptitle("disply_current_results")
         for i,key in enumerate(value):
             plt.subplot(1,dictlen,i+1)
