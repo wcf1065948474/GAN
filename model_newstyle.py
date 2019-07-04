@@ -523,8 +523,8 @@ class GANModel(object):
         pred_fake = self.netD.forward(self.fake_B)
         pred_real = self.netD.forward(self.real_B)
 
-        self.loss_G_A = (self.criterionGAN(pred_real - torch.mean(pred_fake), False) +
-                                    self.criterionGAN(pred_fake - torch.mean(pred_real), True)) / 2
+        self.loss_G_A = (self.criterionGAN(torch.sigmoid(pred_real - torch.mean(pred_fake)), False) +
+                                    self.criterionGAN(torch.sigmoid(pred_fake - torch.mean(pred_real)), True)) / 2
             
         loss_G_A = 0
         if self.opt.patchD:#True
@@ -534,8 +534,8 @@ class GANModel(object):
             else:
                 pred_real_patch = self.netD_P.forward(self.real_patch)
                 
-                loss_G_A += (self.criterionGAN(pred_real_patch - torch.mean(pred_fake_patch), False) +
-                                      self.criterionGAN(pred_fake_patch - torch.mean(pred_real_patch), True)) / 2
+                loss_G_A += (self.criterionGAN(torch.sigmoid(pred_real_patch - torch.mean(pred_fake_patch)), False) +
+                                      self.criterionGAN(torch.sigmoid(pred_fake_patch - torch.mean(pred_real_patch)), True)) / 2
         if self.opt.patchD_3 > 0:   #True
             for i in range(self.opt.patchD_3):
                 pred_fake_patch_1 = self.netD_P.forward(self.fake_patch_1[i])
@@ -544,8 +544,8 @@ class GANModel(object):
                 else:
                     pred_real_patch_1 = self.netD_P.forward(self.real_patch_1[i])
                     
-                    loss_G_A += (self.criterionGAN(pred_real_patch_1 - torch.mean(pred_fake_patch_1), False) +
-                                        self.criterionGAN(pred_fake_patch_1 - torch.mean(pred_real_patch_1), True)) / 2
+                    loss_G_A += (self.criterionGAN(torch.sigmoid(pred_real_patch_1 - torch.mean(pred_fake_patch_1)), False) +
+                                        self.criterionGAN(torch.sigmoid(pred_fake_patch_1 - torch.mean(pred_real_patch_1)), True)) / 2
                     
             if not self.opt.D_P_times2: #false
                 self.loss_G_A += loss_G_A/float(self.opt.patchD_3 + 1)
@@ -577,8 +577,8 @@ class GANModel(object):
         pred_real = netD.forward(real)
         pred_fake = netD.forward(fake.detach())
         if self.opt.use_ragan and use_ragan:
-            loss_D = (self.criterionGAN(pred_real - torch.mean(pred_fake), True) +
-                                      self.criterionGAN(pred_fake - torch.mean(pred_real), False)) / 2
+            loss_D = (self.criterionGAN(torch.sigmoid(pred_real - torch.mean(pred_fake)), True) +
+                                      self.criterionGAN(torch.sigmoid(pred_fake - torch.mean(pred_real)), False)) / 2
         else:
             loss_D_real = self.criterionGAN(pred_real, True)
             loss_D_fake = self.criterionGAN(pred_fake, False)
