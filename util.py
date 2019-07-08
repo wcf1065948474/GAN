@@ -14,9 +14,11 @@ import torch.nn.init as init
 # |imtype|: the desired type of the converted numpy array
 def tensor2im(image_tensor, imtype=np.uint8):
     image_numpy = image_tensor[0].cpu().float().numpy()
-    image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0
-    image_numpy = np.maximum(image_numpy, 0)
-    image_numpy = np.minimum(image_numpy, 255)
+    image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0
+    image_numpy = (image_numpy-np.min(image_numpy))/(np.max(image_numpy)-np.min(image_numpy))
+    image_numpy *= 255.0
+    # image_numpy = np.maximum(image_numpy, 0)
+    # image_numpy = np.minimum(image_numpy, 255)
     return image_numpy.astype(imtype)
 
 def atten2im(image_tensor, imtype=np.uint8):
@@ -30,9 +32,11 @@ def atten2im(image_tensor, imtype=np.uint8):
 def latent2im(image_tensor, imtype=np.uint8):
     # image_tensor = (image_tensor - torch.min(image_tensor))/(torch.max(image_tensor)-torch.min(image_tensor))
     image_numpy = image_tensor[0].cpu().float().numpy()
-    image_numpy = (np.transpose(image_numpy, (1, 2, 0))) * 255.0
-    image_numpy = np.maximum(image_numpy, 0)
-    image_numpy = np.minimum(image_numpy, 255)
+    image_numpy = (np.transpose(image_numpy, (1, 2, 0)))
+    image_numpy = (image_numpy-np.min(image_numpy))/(np.max(image_numpy)-np.min(image_numpy))
+    image_numpy *= 255.0
+    # image_numpy = np.maximum(image_numpy, 0)
+    # image_numpy = np.minimum(image_numpy, 255)
     return image_numpy.astype(imtype)
 
 def max2im(image_1, image_2, imtype=np.uint8):

@@ -278,16 +278,16 @@ class ImagePool(object):
         return return_images
 
 def vgg_preprocess(batch, opt):
-    tensortype = type(batch.data)
+    tensortype = type(batch)
     (r, g, b) = torch.chunk(batch, 3, dim = 1)
     batch = torch.cat((b, g, r), dim = 1) # convert RGB to BGR
     batch = (batch + 1) * 255 * 0.5 # [-1, 1] -> [0, 255]
-    if opt.vgg_mean: #false
-        mean = tensortype(batch.data.size())
-        mean[:, 0, :, :] = 103.939
-        mean[:, 1, :, :] = 116.779
-        mean[:, 2, :, :] = 123.680
-        batch = batch.sub(Variable(mean)) # subtract mean
+    # if True:#if opt.vgg_mean: #false
+    #     mean = tensortype(batch.size())
+    #     mean[:, 0, :, :] = 103.939
+    #     mean[:, 1, :, :] = 116.779
+    #     mean[:, 2, :, :] = 123.680
+    #     batch = batch.sub(mean.cuda()) # subtract mean
     return batch
 class PerceptualLoss(nn.Module):
     def __init__(self, opt):
