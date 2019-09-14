@@ -42,11 +42,10 @@ class ImagePool(object):
         return return_images
 
 class Unet_resize_conv(nn.Module):
-    def __init__(self, opt, skip):
+    def __init__(self, opt):
         super(Unet_resize_conv, self).__init__()
 
         self.opt = opt
-        self.skip = skip
         p = 1
         # self.conv1_1 = nn.Conv2d(4, 32, 3, padding=p)
         self.conv1_1 = nn.Conv2d(4, 32, 3, padding=p)
@@ -212,17 +211,17 @@ class Unet_resize_conv(nn.Module):
 
         latent = self.conv10(conv9)
 
-        if self.opt.times_residual:
+        if self.opt.times_residual:  #True
             latent = latent*gray
 
         # output = self.depth_to_space(conv10, 2)
-        if self.opt.tanh:
+        if self.opt.tanh:  #false
             latent = self.tanh(latent)
-        if self.skip:
-            if self.opt.linear_add:
-                if self.opt.latent_threshold:
+        if self.opt.skip:
+            if self.opt.linear_add: #false
+                if self.opt.latent_threshold:  #false
                     latent = F.relu(latent)
-                elif self.opt.latent_norm:
+                elif self.opt.latent_norm: #false
                     latent = (latent - torch.min(latent))/(torch.max(latent)-torch.min(latent))
                 input = (input - torch.min(input))/(torch.max(input) - torch.min(input))
                 output = latent + input*self.opt.skip
@@ -236,7 +235,7 @@ class Unet_resize_conv(nn.Module):
         else:
             output = latent
 
-        if self.opt.linear:
+        if self.opt.linear:  #false
             output = output/torch.max(torch.abs(output))
             
         
@@ -246,7 +245,7 @@ class Unet_resize_conv(nn.Module):
         if flag == 1:
             output = F.upsample(output, scale_factor=2, mode='bilinear')
             gray = F.upsample(gray, scale_factor=2, mode='bilinear')
-        if self.skip:
+        if self.opt.skip:
             return output, latent
         else:
             return output
@@ -298,7 +297,7 @@ def vgg_preprocess(batch, opt):
     (r, g, b) = torch.chunk(batch, 3, dim = 1)
     batch = torch.cat((b, g, r), dim = 1) # convert RGB to BGR
     batch = (batch + 1) * 255 * 0.5 # [-1, 1] -> [0, 255]
-    if opt.vgg_mean:
+    if opt.vgg_mean: #false
         mean = tensortype(batch.data.size())
         mean[:, 0, :, :] = 103.939
         mean[:, 1, :, :] = 116.779
@@ -498,7 +497,6 @@ class SingleModel(object):
         self.input_img = self.Tensor(nb, opt.input_nc, size, size)
         self.input_A_gray = self.Tensor(nb, 1, size, size)
 
-        # if opt.vgg > 0:
         self.vgg_loss = PerceptualLoss(opt)
         if self.opt.IN_vgg:
             self.vgg_patch_loss = PerceptualLoss(opt)
@@ -508,43 +506,24 @@ class SingleModel(object):
         self.vgg.eval()
         for param in self.vgg.parameters():
             param.requires_grad = False
-        # elif opt.fcn > 0:
-        #     self.fcn_loss = networks.SemanticLoss(opt)
-        #     self.fcn_loss.cuda()
-        #     self.fcn = networks.load_fcn("./model")
-        #     self.fcn.eval()
-        #     for param in self.fcn.parameters():
-        #         param.requires_grad = False
-        # load/define networks
-        # The naming conversion is different from those used in the paper
-        # Code (paper): G_A (G), G_B (F), D_A (D_Y), D_B (D_X)
 
         skip = True if opt.skip > 0 else False
-        self.netG_A = Unet_resize_conv(opt, skip)
+        self.netG_A = Unet_resize_conv(opt)
         self.netG_A.cuda()
         self.netG_A.apply(weights_init)
-        # self.netG_B = networks.define_G(opt.output_nc, opt.input_nc,
-        #                                 opt.ngf, opt.which_model_netG, opt.norm, not opt.no_dropout, self.gpu_ids, skip=False, opt=opt)
-
+        
         if self.opt.isTrain:
             use_sigmoid = opt.no_lsgan
             self.netD_A = NoNormDiscriminator(opt.output_nc, opt.ndf, opt.n_layers_D, use_sigmoid=use_sigmoid)
             self.netD_A.cuda()
             self.netD_A.apply(weights_init)
-            # self.netD_A = networks.define_D(opt.output_nc, opt.ndf,
-            #                                 opt.which_model_netD,
-            #                                 opt.n_layers_D, opt.norm, use_sigmoid, self.gpu_ids, False)
             if self.opt.patchD:
                 self.netD_P = NoNormDiscriminator(opt.output_nc, opt.ndf, opt.n_layers_patchD, use_sigmoid=use_sigmoid)
                 self.netD_P.cuda()
                 self.netD_P.apply(weights_init)
-                # self.netD_P = networks.define_D(opt.input_nc, opt.ndf,
-                #                             opt.which_model_netD,
-                #                             opt.n_layers_patchD, opt.norm, use_sigmoid, self.gpu_ids, True)
         if not self.opt.isTrain or opt.continue_train:
             which_epoch = opt.which_epoch
             self.load_network(self.netG_A, 'G_A', which_epoch)
-            # self.load_network(self.netG_B, 'G_B', which_epoch)
             if self.opt.isTrain:
                 self.load_network(self.netD_A, 'D_A', which_epoch)
                 if self.opt.patchD:
@@ -555,11 +534,11 @@ class SingleModel(object):
             # self.fake_A_pool = ImagePool(opt.pool_size)
             self.fake_B_pool = ImagePool(opt.pool_size)
             # define loss functions
-            if opt.use_wgan:
+            if opt.use_wgan:#=0.0
                 self.criterionGAN = DiscLossWGANGP()
             else:
                 self.criterionGAN = GANLoss(use_lsgan=not opt.no_lsgan, tensor=self.Tensor)
-            if opt.use_mse:
+            if opt.use_mse:#false
                 self.criterionCycle = torch.nn.MSELoss()
             else:
                 self.criterionCycle = torch.nn.L1Loss()
@@ -573,25 +552,22 @@ class SingleModel(object):
                 self.optimizer_D_P = torch.optim.Adam(self.netD_P.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
 
         print('---------- Networks initialized -------------')
-        # networks.print_network(self.netG_A)
-        # networks.print_network(self.netG_B)
-        # if self.isTrain:
-        #     # networks.print_network(self.netD_A)
-        #     if self.opt.patchD:
-        #         networks.print_network(self.netD_P)
-        #     # networks.print_network(self.netD_B)
         if self.opt.isTrain:
             self.netG_A.train()
             self.netD_A.train()
             if opt.patchD:
                 self.netD_P.train()
-            # self.netG_B.train()
         else:
             self.netG_A.eval()
             self.netD_A.eval()
             if opt.patchD:
                 self.netD_P.eval()
-            # self.netG_B.eval()
+        print("G_A:")
+        print(netG_A)
+        print("D_A:")
+        print(netD_A)
+        print("D_P:")
+        print(netD_P)
         print('-----------------------------------------------')
 
     def set_input(self, input):
@@ -604,7 +580,6 @@ class SingleModel(object):
         self.input_A_gray.resize_(input_A_gray.size()).copy_(input_A_gray)
         self.input_B.resize_(input_B.size()).copy_(input_B)
         self.input_img.resize_(input_img.size()).copy_(input_img)
-        self.image_paths = input['A_paths' if AtoB else 'B_paths']
 
     def test(self):
         self.real_A = Variable(self.input_A, volatile=True)
@@ -644,9 +619,6 @@ class SingleModel(object):
         A_gray = util.atten2im(self.real_A_gray.data)
         return OrderedDict([('real_A', real_A), ('fake_B', fake_B)])
 
-    # get image paths
-    def get_image_paths(self):
-        return self.image_paths
 
     def backward_D_basic(self, netD, real, fake, use_ragan):
         # Real
@@ -699,16 +671,16 @@ class SingleModel(object):
         self.real_B = Variable(self.input_B)
         self.real_A_gray = Variable(self.input_A_gray)
         self.real_img = Variable(self.input_img)
-        if self.opt.noise > 0:
+        if self.opt.noise > 0:  #opt.noise=0
             self.noise = Variable(torch.cuda.FloatTensor(self.real_A.size()).normal_(mean=0, std=self.opt.noise/255.))
             self.real_A = self.real_A + self.noise
-        if self.opt.input_linear:
+        if self.opt.input_linear:  #false
             self.real_A = (self.real_A - torch.min(self.real_A))/(torch.max(self.real_A) - torch.min(self.real_A))
-        if self.opt.skip == 1:
+        if self.opt.skip == 1:  #skip==1
             self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray)
         else:
             self.fake_B = self.netG_A.forward(self.real_img, self.real_A_gray)
-        if self.opt.patchD:
+        if self.opt.patchD:  #True
             w = self.real_A.size(3)
             h = self.real_A.size(2)
             w_offset = random.randint(0, max(0, w - self.opt.patchSize - 1))
@@ -720,7 +692,7 @@ class SingleModel(object):
                    w_offset:w_offset + self.opt.patchSize]
             self.input_patch = self.real_A[:,:, h_offset:h_offset + self.opt.patchSize,
                    w_offset:w_offset + self.opt.patchSize]
-        if self.opt.patchD_3 > 0:
+        if self.opt.patchD_3 > 0:  #=5
             self.fake_patch_1 = []
             self.real_patch_1 = []
             self.input_patch_1 = []
@@ -739,9 +711,9 @@ class SingleModel(object):
 
     def backward_G(self, epoch):
         pred_fake = self.netD_A.forward(self.fake_B)
-        if self.opt.use_wgan:
+        if self.opt.use_wgan:  #=0.0,False
             self.loss_G_A = -pred_fake.mean()
-        elif self.opt.use_ragan:
+        elif self.opt.use_ragan:  #true
             pred_real = self.netD_A.forward(self.real_B)
 
             self.loss_G_A = (self.criterionGAN(pred_real - torch.mean(pred_fake), False) +
@@ -751,16 +723,16 @@ class SingleModel(object):
             self.loss_G_A = self.criterionGAN(pred_fake, True)
         
         loss_G_A = 0
-        if self.opt.patchD:
+        if self.opt.patchD:#True
             pred_fake_patch = self.netD_P.forward(self.fake_patch)
-            if self.opt.hybrid_loss:
+            if self.opt.hybrid_loss:#true
                 loss_G_A += self.criterionGAN(pred_fake_patch, True)
             else:
                 pred_real_patch = self.netD_P.forward(self.real_patch)
                 
                 loss_G_A += (self.criterionGAN(pred_real_patch - torch.mean(pred_fake_patch), False) +
                                       self.criterionGAN(pred_fake_patch - torch.mean(pred_real_patch), True)) / 2
-        if self.opt.patchD_3 > 0:   
+        if self.opt.patchD_3 > 0:   #True
             for i in range(self.opt.patchD_3):
                 pred_fake_patch_1 = self.netD_P.forward(self.fake_patch_1[i])
                 if self.opt.hybrid_loss:
@@ -771,7 +743,7 @@ class SingleModel(object):
                     loss_G_A += (self.criterionGAN(pred_real_patch_1 - torch.mean(pred_fake_patch_1), False) +
                                         self.criterionGAN(pred_fake_patch_1 - torch.mean(pred_real_patch_1), True)) / 2
                     
-            if not self.opt.D_P_times2:
+            if not self.opt.D_P_times2: #false
                 self.loss_G_A += loss_G_A/float(self.opt.patchD_3 + 1)
             else:
                 self.loss_G_A += loss_G_A/float(self.opt.patchD_3 + 1)*2
@@ -785,11 +757,11 @@ class SingleModel(object):
             vgg_w = 0
         else:
             vgg_w = 1
-        if self.opt.vgg > 0:
+        if self.opt.vgg > 0:#True
             self.loss_vgg_b = self.vgg_loss.compute_vgg_loss(self.vgg, 
-                    self.fake_B, self.real_A) * self.opt.vgg if self.opt.vgg > 0 else 0
-            if self.opt.patch_vgg:
-                if not self.opt.IN_vgg:
+                    self.fake_B, self.real_A) * self.opt.vgg #if self.opt.vgg > 0 else 0
+            if self.opt.patch_vgg:#true
+                if not self.opt.IN_vgg:#=false
                     loss_vgg_patch = self.vgg_loss.compute_vgg_loss(self.vgg, 
                     self.fake_patch, self.input_patch) * self.opt.vgg
                 else:
@@ -807,7 +779,7 @@ class SingleModel(object):
                 else:
                     self.loss_vgg_b += loss_vgg_patch
             self.loss_G = self.loss_G_A + self.loss_vgg_b*vgg_w
-        elif self.opt.fcn > 0:
+        elif self.opt.fcn > 0:#=0
             self.loss_fcn_b = self.fcn_loss.compute_fcn_loss(self.fcn, 
                     self.fake_B, self.real_A) * self.opt.fcn if self.opt.fcn > 0 else 0
             if self.opt.patchD:
@@ -905,10 +877,10 @@ class SingleModel(object):
                                     ('self_attention', self_attention)])
 
     def save(self, label):
-        self.save_network(self.netG_A, 'G_A', label, self.gpu_ids)
-        self.save_network(self.netD_A, 'D_A', label, self.gpu_ids)
+        self.save_network(self.netG_A, 'G_A', label)
+        self.save_network(self.netD_A, 'D_A', label)
         if self.opt.patchD:
-            self.save_network(self.netD_P, 'D_P', label, self.gpu_ids)
+            self.save_network(self.netD_P, 'D_P', label)
         # self.save_network(self.netG_B, 'G_B', label, self.gpu_ids)
         # self.save_network(self.netD_B, 'D_B', label, self.gpu_ids)
 
@@ -935,12 +907,10 @@ class SingleModel(object):
         save_path = os.path.join(self.save_dir, save_filename)
         network.load_state_dict(torch.load(save_path))
 
-    def save_network(self, network, network_label, epoch_label, gpu_ids):
+    def save_network(self, network, network_label, epoch_label):
         save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
         save_path = os.path.join(self.save_dir, save_filename)
         torch.save(network.cpu().state_dict(), save_path)
-        if len(gpu_ids) and torch.cuda.is_available():
-            network.cuda(device=gpu_ids[0])
 
 class Visualizer(object):
     def __init__(self):

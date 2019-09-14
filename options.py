@@ -7,7 +7,7 @@ class Options(object):
         self.checkpoints_dir="./checkpoints"
         self.continue_train=False
         self.dataroot="./final_dataset"
-        self.display_freq= 30
+        self.display_freq= 300
         self.display_id= 1
         self.display_single_pane_ncols= 0
         self.display_winsize= 256
